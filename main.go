@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 
 	"github.com/gofiber/fiber/v2"
@@ -60,17 +61,19 @@ type AppliesFor struct {
 
 type GotIn struct {
 	gorm.Model
-	SRN    int    `gorm:"column:srn;foreignKey:SRN"`
-	UNID   int    `gorm:"column:unid;foreignKey:UniversityID"`
-	Joined string `gorm:"column:joined"`
+	SRN         string `gorm:"column:srn;foreignKey:SRN"`
+	UNID        int    `gorm:"column:unid;foreignKey:UniversityID"`
+	ProgramName string `gorm:"column:program"`
+	Joined      string `gorm:"column:joined"`
 }
 
 type AppliedForInterview struct {
 	gorm.Model
-	SRN                 int    `gorm:"column:srn;foreignKey:SRN"`
+	SRN                 string `gorm:"column:srn;foreignKey:SRN"`
 	CID                 int    `gorm:"column:cid;foreignKey:CID"`
 	DateOfInterview     string `gorm:"column:date_of_interview"`
 	InterviewExperience string `gorm:"column:interview_experience"`
+	CTC                 int    `gorm:"column:date_of_interview"`
 	Selected            bool   `gorm:"column:selected"`
 }
 
@@ -106,6 +109,22 @@ type LoginInput struct {
 }
 type getStudentDetailsreq struct {
 	srn string
+}
+type addplacementreq struct {
+	srn             string
+	company_name    string
+	DateOfInterview string
+	isAdmin         bool
+	experience      string
+	CTC             int
+	selected        bool
+}
+type addstudentmastersreq struct {
+	srn         string
+	uname       string
+	programname string
+	isAdmin     bool
+	Joined      bool
 }
 
 func main() {
@@ -231,6 +250,83 @@ func main() {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Record not found!"})
 		}
 		return c.JSON(fiber.Map{"data": allstudents})
+	})
+	//func to find cid using cname
+	findCompanyID := func(name string) (uint, error) {
+		var company Company
+		result := db.Where("Name = ?", name).First(&company)
+		if result.Error != nil {
+			return 0, result.Error
+		}
+		return company.ID, nil
+	}
+	//func to find uid using uname
+	findUniversityID := func(name string) (uint, error) {
+		var university University
+		result := db.Where("name = ?", name).First(&university)
+		if result.Error != nil {
+			return 0, result.Error
+		}
+		return university.ID, nil
+	}
+	app.Post("/addstudentplacements", func(c *fiber.Ctx) error {
+		var input addplacementreq
+		if err := c.BodyParser(&input); err != nil {
+			return c.Status(400).SendString(err.Error())
+		}
+		cname := input.company_name
+		var Data AppliedForInterview
+		companyID, err := findCompanyID(cname)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return err
+		}
+		if input.selected {
+			if input.isAdmin {
+				Data = AppliedForInterview{
+					SRN:                 input.srn,
+					CID:                 int(companyID),
+					DateOfInterview:     input.DateOfInterview,
+					InterviewExperience: input.experience,
+					CTC:                 input.CTC,
+				}
+				result := db.Create(&Data)
+				if result.Error != nil {
+					return c.Status(500).SendString(result.Error.Error())
+				}
+
+			}
+		}
+		return c.JSON(Data)
+	})
+
+	app.Post("/addstudentmasters", func(c *fiber.Ctx) error {
+		var input addstudentmastersreq
+		if err := c.BodyParser(&input); err != nil {
+			return c.Status(400).SendString(err.Error())
+		}
+		uname := input.uname
+		var Data GotIn
+		UniversityID, err := findUniversityID(uname)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return err
+		}
+		if input.Joined {
+			if input.isAdmin {
+				Data = GotIn{
+					SRN:         input.srn,
+					UNID:        int(UniversityID),
+					ProgramName: input.programname,
+				}
+				result := db.Create(&Data)
+				if result.Error != nil {
+					return c.Status(500).SendString(result.Error.Error())
+				}
+			}
+		}
+
+		return c.JSON(Data)
 	})
 
 	// Start the server
