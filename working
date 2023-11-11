@@ -1,0 +1,82 @@
+// Define the signup route
+	app.Post("/signup", func(c *fiber.Ctx) error {
+		var input SignupInput
+		if err := c.BodyParser(&input); err != nil {
+			return c.Status(400).SendString(err.Error())
+		}
+
+		if input.IsAdmin {
+			admin := Admin{
+				Name:     input.name,
+				Email:    input.email,
+				Password: input.password,
+			}
+			result := db.Create(&admin)
+			if result.Error != nil {
+				return c.Status(500).SendString(result.Error.Error())
+			}
+			return c.JSON(admin)
+		} else {
+			student := Student{
+				SRN:          input.srn,
+				Name:         input.name,
+				Password:     input.password,
+				Email:        input.email,
+				PhoneNumber:  input.phone_number,
+				DepartmentID: input.department_id,
+				DOB:          input.dob,
+				// Set other fields as needed
+			}
+			result := db.Create(&student)
+			if result.Error != nil {
+				return c.Status(500).SendString(result.Error.Error())
+			}
+			return c.JSON(student)
+		}
+	})
+	// Define the login route
+	app.Post("/login", func(c *fiber.Ctx) error {
+		var input LoginInput
+		if err := c.BodyParser(&input); err != nil {
+			return c.Status(400).SendString(err.Error())
+		}
+
+		if input.IsAdmin {
+			var admin Admin
+			result := db.Where("email = ? AND password = ?", input.Email, input.Password).First(&admin)
+			if result.Error != nil {
+				return c.Status(500).SendString(result.Error.Error())
+			}
+			return c.JSON(admin)
+		} else {
+			var student Student
+			result := db.Where("email = ? AND password = ?", input.Email, input.Password).First(&student)
+			if result.Error != nil {
+				return c.Status(500).SendString(result.Error.Error())
+			}
+			return c.JSON(student)
+		}
+	})
+
+
+
+	type SignupInput struct {
+		IsAdmin       bool
+		name          string
+		email         string
+		srn           int
+		phone_number  string
+		dob           string
+		department_id int
+		password      string
+		// Add other fields as needed
+	}
+	type LoginInput struct {
+		IsAdmin  bool
+		Email    string
+		Password string
+	}
+
+
+
+
