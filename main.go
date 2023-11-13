@@ -126,6 +126,16 @@ type addstudentmastersreq struct {
 	isAdmin     bool
 	Joined      bool
 }
+type detailstoupdatereq struct {
+	name          string
+	email         string
+	srn           string
+	oldsrn        string
+	phone_number  string
+	dob           string
+	department_id int
+	password      string
+}
 
 func main() {
 	// Connect to the database
@@ -199,6 +209,24 @@ func main() {
 			}
 			return c.JSON(student)
 		}
+	})
+	app.Post("/updatestudentprofile", func(c *fiber.Ctx) error {
+		var student Student
+		var input detailstoupdatereq
+		db.First(&student, "srn = ?", input.oldsrn)
+		//changing profile
+		student.Name = input.name
+		student.Email = input.email
+		student.DOB = input.dob
+		student.Password = input.password
+		student.SRN = input.srn
+		student.PhoneNumber = input.phone_number
+		db.Save(&student)
+		return c.JSON(fiber.Map{
+			"status":  "success",
+			"message": "Student profile updated successfully",
+			"data":    student,
+		})
 	})
 	app.Get("/getStudentDetails", func(c *fiber.Ctx) error {
 		var input getStudentDetailsreq
