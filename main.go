@@ -221,6 +221,7 @@ func main() {
 		student.Password = input.password
 		student.SRN = input.srn
 		student.PhoneNumber = input.phone_number
+		student.DepartmentID = input.department_id
 		db.Save(&student)
 		return c.JSON(fiber.Map{
 			"status":  "success",
