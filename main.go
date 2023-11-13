@@ -147,6 +147,64 @@ func main() {
 	// Migrate the models
 	db.AutoMigrate(&Department{}, &Company{}, &Student{}, &FacultyMentor{}, &University{}, &AppliesFor{}, &GotIn{}, &AppliedForInterview{}, &Admin{}, &Roles{})
 
+	//declaring sql functions
+	if err := db.Exec(`
+        CREATE OR REPLACE FUNCTION avgsal() RETURNS numeric AS $$
+        DECLARE
+          total_sal numeric;
+          count_rows integer;
+        BEGIN
+          SELECT sum(ctc), count(*) INTO total_sal, count_rows FROM AppliedForInterview;
+          
+          IF count_rows > 0 THEN
+            RETURN total_sal / count_rows;
+          ELSE
+            RETURN 0;
+          END IF;
+        END;
+        $$ LANGUAGE plpgsql;
+    `).Error; err != nil {
+		log.Fatalln(err)
+	}
+	// Declaring SQL functions
+	if err := db.Exec(`
+CREATE OR REPLACE FUNCTION findtotalplaced() RETURNS integer AS $$
+DECLARE
+  total_placed integer;
+BEGIN
+  SELECT count(*) INTO total_placed FROM applied_for_interview WHERE selected = true;
+  RETURN total_placed;
+END;
+$$ LANGUAGE plpgsql;
+`).Error; err != nil {
+		log.Fatalln(err)
+	}
+
+	if err := db.Exec(`
+CREATE OR REPLACE FUNCTION findtotalmasterjoined() RETURNS integer AS $$
+DECLARE
+  total_joined integer;
+BEGIN
+  SELECT count(*) INTO total_joined FROM got_in WHERE joined = true;
+  RETURN total_joined;
+END;
+$$ LANGUAGE plpgsql;
+`).Error; err != nil {
+		log.Fatalln(err)
+	}
+
+	if err := db.Exec(`
+CREATE OR REPLACE FUNCTION totalcollegeoffers() RETURNS integer AS $$
+DECLARE
+  total_offers integer;
+BEGIN
+  SELECT count(*) INTO total_offers FROM applied_for_interview UNION ALL SELECT count(*) FROM got_in;
+  RETURN total_offers;
+END;
+$$ LANGUAGE plpgsql;
+`).Error; err != nil {
+		log.Fatalln(err)
+	}
 	// Create a new Fiber app
 	app := fiber.New()
 
@@ -357,7 +415,49 @@ func main() {
 
 		return c.JSON(Data)
 	})
+	app.Get("/findavgsalary", func(c *fiber.Ctx) error {
+		// Execute the SQL function to find the average salary
+		var result struct {
+			AverageSalary float64 `json:"average_salary"`
+		}
+		if err := db.Raw("SELECT avgsal() AS average_salary").Scan(&result).Error; err != nil {
+			return c.Status(500).SendString(err.Error())
+		}
+		return c.JSON(result)
+	})
+	// Routes
+	app.Get("/findtotalplaced", func(c *fiber.Ctx) error {
+		// Execute the SQL function to find the total placed students
+		var result struct {
+			TotalPlaced int `json:"total_placed"`
+		}
+		if err := db.Raw("SELECT findtotalplaced() AS total_placed").Scan(&result).Error; err != nil {
+			return c.Status(500).SendString(err.Error())
+		}
+		return c.JSON(result)
+	})
 
+	app.Get("/findtotalmasterjoined", func(c *fiber.Ctx) error {
+		// Execute the SQL function to find the total students joined universities
+		var result struct {
+			TotalJoined int `json:"total_joined"`
+		}
+		if err := db.Raw("SELECT findtotalmasterjoined() AS total_joined").Scan(&result).Error; err != nil {
+			return c.Status(500).SendString(err.Error())
+		}
+		return c.JSON(result)
+	})
+
+	app.Get("/totalcollegeoffers", func(c *fiber.Ctx) error {
+		// Execute the SQL function to find the total college offers
+		var result struct {
+			TotalOffers int `json:"total_offers"`
+		}
+		if err := db.Raw("SELECT totalcollegeoffers() AS total_offers").Scan(&result).Error; err != nil {
+			return c.Status(500).SendString(err.Error())
+		}
+		return c.JSON(result)
+	})
 	// Start the server
 	log.Fatal(app.Listen(":9090"))
 }
