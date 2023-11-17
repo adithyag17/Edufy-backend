@@ -5,23 +5,10 @@ import (
 	"log"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
-
-type Department struct {
-	gorm.Model
-	DeptID   int    `gorm:"column:dept_id"`
-	DeptName string `gorm:"column:dept_name"`
-	DeptHead string `gorm:"column:dept_head"`
-}
-
-type Company struct {
-	gorm.Model
-	CID     int     `gorm:"column:cid"`
-	Name    string  `gorm:"column:name"`
-	Package float64 `gorm:"column:package"`
-}
 
 type Student struct {
 	gorm.Model
@@ -32,81 +19,103 @@ type Student struct {
 	PhoneNumber  string `gorm:"column:phone_number"`
 	DepartmentID int    `gorm:"foreignKey:DeptID"`
 	DOB          string `gorm:"column:dob"`
-	RoleID       int    `gorm:"column:role_id"`
 }
 
+// For the 'department' table
+type Department struct {
+	gorm.Model
+	DeptID   int    `gorm:"column:dept_id;primaryKey"`
+	DeptName string `gorm:"column:dept_name"`
+	DeptHead string `gorm:"column:dept_head"`
+}
+
+// For the 'company' table
+type Company struct {
+	gorm.Model
+	CID     int     `gorm:"column:cid;primaryKey"`
+	Name    string  `gorm:"column:name"`
+	Package float64 `gorm:"column:package"`
+}
+
+// For the 'faculty_mentor' table
 type FacultyMentor struct {
 	gorm.Model
-	FacultyMentorID int    `gorm:"column:faculty_mentorid"`
+	FacultyMentorID int    `gorm:"column:faculty_mentorid;primaryKey"`
 	FName           string `gorm:"column:fname"`
 	LName           string `gorm:"column:lname"`
 	Dept            int    `gorm:"foreignKey:DeptID"`
 }
 
+// For the 'university' table
 type University struct {
 	gorm.Model
-	UniversityID int    `gorm:"column:university_id"`
+	UniversityID int    `gorm:"column:university_id;primaryKey"`
 	UName        string `gorm:"column:uname"`
 	Dept         int    `gorm:"foreignKey:DeptID"`
 	Ranking      int    `gorm:"column:ranking"`
 	Location     string `gorm:"column:location"`
 }
 
+// For the 'applies_for' table
 type AppliesFor struct {
 	gorm.Model
-	SRN           int `gorm:"column:srn;foreignKey:SRN"`
-	UNID          int `gorm:"column:unid;foreignKey:UniversityID"`
+	SRN           int `gorm:"column:srn;primaryKey"`
+	UNID          int `gorm:"column:unid;primaryKey"`
 	RecommendedBy int `gorm:"column:recommended_by;foreignKey:FacultyMentorID"`
 }
 
+// For the 'gotin' table
 type GotIn struct {
 	gorm.Model
-	SRN         string `gorm:"column:srn;foreignKey:SRN"`
-	UNID        int    `gorm:"column:unid;foreignKey:UniversityID"`
+	SRN         string `gorm:"column:srn;primaryKey"`
+	UNID        int    `gorm:"column:unid;primaryKey"`
 	ProgramName string `gorm:"column:program"`
 	Joined      string `gorm:"column:joined"`
 }
 
+// For the 'applied_for_interview' table
 type AppliedForInterview struct {
 	gorm.Model
-	SRN                 string `gorm:"column:srn;foreignKey:SRN"`
-	CID                 int    `gorm:"column:cid;foreignKey:CID"`
+	SRN                 string `gorm:"column:srn;primaryKey"`
+	CID                 int    `gorm:"column:cid;primaryKey"`
 	DateOfInterview     string `gorm:"column:date_of_interview"`
 	InterviewExperience string `gorm:"column:interview_experience"`
 	CTC                 int    `gorm:"column:date_of_interview"`
 	Selected            bool   `gorm:"column:selected"`
 }
 
+// For the 'admin' table
 type Admin struct {
 	gorm.Model
-	Name     string `gorm:"column:name"`
+	Name     string `gorm:"column:name;primaryKey"`
 	Email    string `gorm:"column:email"`
-	RoleID   int    `gorm:"column:role_id"`
 	Password string `gorm:"column:password"`
 }
 
+// For the 'roles' table
 type Roles struct {
 	gorm.Model
 	RoleName string `gorm:"column:rolename"`
-	RoleID   int    `gorm:"column:role_id"`
+	RoleID   int    `gorm:"column:role_id;primaryKey"`
 }
 
-type SignupInput struct {
-	IsAdmin       bool
-	name          string
-	email         string
-	srn           string
-	phone_number  string
-	dob           string
-	department_id int
-	password      string
-	// Add other fields as needed
+type SignUpRequest struct {
+	IsAdmin      bool   `json:"isAdmin"`
+	Name         string `json:"name"`
+	Email        string `json:"email"`
+	SRN          string `json:"srn"`
+	PhoneNumber  string `json:"phone_number"`
+	DOB          string `json:"dob"`
+	DepartmentID string `json:"department_id"`
+	Password     string `json:"password"`
 }
+
 type LoginInput struct {
-	IsAdmin  bool
-	Email    string
-	Password string
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	IsAdmin  bool   `json:"isAdmin"`
 }
+
 type getStudentDetailsreq struct {
 	srn string
 }
@@ -119,6 +128,7 @@ type addplacementreq struct {
 	CTC             int
 	selected        bool
 }
+
 type addstudentmastersreq struct {
 	srn         string
 	uname       string
@@ -143,6 +153,7 @@ func main() {
 	if err != nil {
 		log.Fatalln(err)
 	}
+	fmt.Println("Connected to database")
 
 	// Migrate the models
 	db.AutoMigrate(&Department{}, &Company{}, &Student{}, &FacultyMentor{}, &University{}, &AppliesFor{}, &GotIn{}, &AppliedForInterview{}, &Admin{}, &Roles{})
@@ -205,74 +216,80 @@ $$ LANGUAGE plpgsql;
 `).Error; err != nil {
 		log.Fatalln(err)
 	}
-	// Create a new Fiber app
 	app := fiber.New()
-
-	// Add routes here
-	// Define the signup route
-	app.Post("/signup", func(c *fiber.Ctx) error {
-		var input SignupInput
-		if err := c.BodyParser(&input); err != nil {
-			return c.Status(400).SendString(err.Error())
-		}
-
-		if input.IsAdmin {
-			admin := Admin{
-				Name:     input.name,
-				Email:    input.email,
-				Password: input.password,
+	app.Use(cors.New())
+	app.Post("/signup",
+		func(c *fiber.Ctx) error {
+			var input SignUpRequest
+			if err := c.BodyParser(&input); err != nil {
+				return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+					"error": "Invalid request body",
+				})
 			}
-			result := db.Create(&admin)
-			if result.Error != nil {
-				return c.Status(500).SendString(result.Error.Error())
+
+			fmt.Printf("Received SignUp request:\n%+v\n", input)
+			if input.IsAdmin {
+				admin := Admin{
+					Name:     input.Name,
+					Email:    input.Email,
+					Password: input.Password,
+				}
+				// Add your logic to interact with the database for admin creation here
+				fmt.Println("Admin created:", admin)
+				// Return the created admin as JSON
+				return c.JSON(admin)
 			}
-			return c.JSON(admin)
-		} else {
+
 			student := Student{
-				SRN:          input.srn,
-				Name:         input.name,
-				Password:     input.password,
-				Email:        input.email,
-				PhoneNumber:  input.phone_number,
-				DepartmentID: input.department_id,
-				DOB:          input.dob,
-				// Set other fields as needed
+				SRN:         input.SRN,
+				Name:        input.Name,
+				Email:       input.Email,
+				PhoneNumber: input.PhoneNumber,
+				DOB:         input.DOB,
+				// DepartmentID: input.DepartmentID,
+				Password: input.Password,
 			}
 			result := db.Create(&student)
 			if result.Error != nil {
 				return c.Status(500).SendString(result.Error.Error())
 			}
+			// Add your logic to interact with the database for student creation here
+			fmt.Println("Student created:", student)
+			// Return the created student as JSON
 			return c.JSON(student)
-		}
-	})
-	// Define the login route
+			// Add your logic to process the SignUp request here
+		})
 	app.Post("/login", func(c *fiber.Ctx) error {
 		var input LoginInput
 		if err := c.BodyParser(&input); err != nil {
 			return c.Status(400).SendString(err.Error())
 		}
-
 		if input.IsAdmin {
+			// Admin login logic
 			var admin Admin
 			result := db.Where("email = ? AND password = ?", input.Email, input.Password).First(&admin)
 			if result.Error != nil {
-				return c.Status(500).SendString(result.Error.Error())
+				return c.Status(401).SendString("Invalid credentials")
 			}
 			return c.JSON(admin)
 		} else {
+			// Student login logic
 			var student Student
 			result := db.Where("email = ? AND password = ?", input.Email, input.Password).First(&student)
 			if result.Error != nil {
-				return c.Status(500).SendString(result.Error.Error())
+				return c.Status(401).SendString("Invalid credentials")
 			}
 			return c.JSON(student)
 		}
+	})
+
+	app.Get("/hi", func(c *fiber.Ctx) error {
+		return c.SendString("I'm a GET request!")
 	})
 	app.Post("/updatestudentprofile", func(c *fiber.Ctx) error {
 		var student Student
 		var input detailstoupdatereq
 		db.First(&student, "srn = ?", input.oldsrn)
-		//changing profile
 		student.Name = input.name
 		student.Email = input.email
 		student.DOB = input.dob
