@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"strconv"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -19,6 +20,8 @@ type Student struct {
 	PhoneNumber  string `gorm:"column:phone_number"`
 	DepartmentID int    `gorm:"foreignKey:DeptID"`
 	DOB          string `gorm:"column:dob"`
+	Desc         string `gorm:"column:desc"`
+	IsAdmin      bool   `gorm:"column:isadmin"`
 }
 
 // For the 'department' table
@@ -85,12 +88,16 @@ type AppliedForInterview struct {
 }
 
 // For the 'admin' table
-type Admin struct {
-	gorm.Model
-	Name     string `gorm:"column:name;primaryKey"`
-	Email    string `gorm:"column:email"`
-	Password string `gorm:"column:password"`
-}
+// type Admin struct {
+// 	gorm.Model
+// 	Name        string `gorm:"column:name;primaryKey"`
+// 	Email       string `gorm:"column:email"`
+// 	Password    string `gorm:"column:password"`
+// 	DOB         string `gorm:"column:dob"`
+// 	Phonenumber string `gorm:"column:phonenumber"`
+// 	Deptid      int    `gorm:"column:deptid"`
+// 	description string `gorm:"column:description"`
+// }
 
 // For the 'roles' table
 type Roles struct {
@@ -108,6 +115,7 @@ type SignUpRequest struct {
 	DOB          string `json:"dob"`
 	DepartmentID string `json:"department_id"`
 	Password     string `json:"password"`
+	Desc         string `json:"desc"`
 }
 
 type LoginInput struct {
@@ -117,7 +125,7 @@ type LoginInput struct {
 }
 
 type getStudentDetailsreq struct {
-	srn string
+	Name string `json:"name"`
 }
 type addplacementreq struct {
 	srn             string
@@ -137,14 +145,13 @@ type addstudentmastersreq struct {
 	Joined      bool
 }
 type detailstoupdatereq struct {
-	name          string
-	email         string
-	srn           string
-	oldsrn        string
-	phone_number  string
-	dob           string
-	department_id int
-	password      string
+	Name          string `json:"name"`
+	Email         string `json:"email"`
+	Oldsrn        string `json:"srn"`
+	Phone_number  string `json:"phone_number"`
+	Dob           string `json:"dob"`
+	Department_id int    `json:"dept_id"`
+	Password      string `json:"password"`
 }
 
 func main() {
@@ -156,8 +163,21 @@ func main() {
 	fmt.Println("Connected to database")
 
 	// Migrate the models
-	db.AutoMigrate(&Department{}, &Company{}, &Student{}, &FacultyMentor{}, &University{}, &AppliesFor{}, &GotIn{}, &AppliedForInterview{}, &Admin{}, &Roles{})
-
+	db.AutoMigrate(&Department{}, &Company{}, &Student{}, &FacultyMentor{}, &University{}, &AppliesFor{}, &GotIn{}, &AppliedForInterview{}, &Roles{})
+	// if err := db.Exec(`
+	// ALTER TABLE applied_for_interviews DROP COLUMN id;
+	// ALTER TABLE applies_fors DROP COLUMN id;
+	// ALTER TABLE admins DROP COLUMN id;
+	// ALTER TABLE companies DROP COLUMN id;
+	// ALTER TABLE departments DROP COLUMN id;
+	// ALTER TABLE faculty_mentors DROP COLUMN id;
+	// ALTER TABLE got_ins DROP COLUMN id;
+	// ALTER TABLE roles DROP COLUMN id;
+	// ALTER TABLE universities DROP COLUMN id;
+	// ALTER TABLE students DROP COLUMN id;
+	// `).Error; err != nil {
+	// 	log.Fatalln(err)
+	// }
 	//declaring sql functions
 	if err := db.Exec(`
         CREATE OR REPLACE FUNCTION avgsal() RETURNS numeric AS $$
@@ -228,26 +248,20 @@ $$ LANGUAGE plpgsql;
 			}
 
 			fmt.Printf("Received SignUp request:\n%+v\n", input)
-			if input.IsAdmin {
-				admin := Admin{
-					Name:     input.Name,
-					Email:    input.Email,
-					Password: input.Password,
-				}
-				// Add your logic to interact with the database for admin creation here
-				fmt.Println("Admin created:", admin)
-				// Return the created admin as JSON
-				return c.JSON(admin)
-			}
 
+			// if err != nil {
+			// 	// ... handle error
+			// 	panic(err)
+			// }
 			student := Student{
 				SRN:         input.SRN,
 				Name:        input.Name,
 				Email:       input.Email,
 				PhoneNumber: input.PhoneNumber,
 				DOB:         input.DOB,
-				// DepartmentID: input.DepartmentID,
-				Password: input.Password,
+				Desc:        input.Desc,
+				Password:    input.Password,
+				IsAdmin:     input.IsAdmin,
 			}
 			result := db.Create(&student)
 			if result.Error != nil {
@@ -266,12 +280,12 @@ $$ LANGUAGE plpgsql;
 		}
 		if input.IsAdmin {
 			// Admin login logic
-			var admin Admin
+			var admin Student
 			result := db.Where("email = ? AND password = ?", input.Email, input.Password).First(&admin)
 			if result.Error != nil {
 				return c.Status(401).SendString("Invalid credentials")
 			}
-			return c.JSON(admin)
+			return c.JSON(admin.Name)
 		} else {
 			// Student login logic
 			var student Student
@@ -279,7 +293,7 @@ $$ LANGUAGE plpgsql;
 			if result.Error != nil {
 				return c.Status(401).SendString("Invalid credentials")
 			}
-			return c.JSON(student)
+			return c.JSON(student.Name)
 		}
 	})
 
@@ -289,14 +303,31 @@ $$ LANGUAGE plpgsql;
 	app.Post("/updatestudentprofile", func(c *fiber.Ctx) error {
 		var student Student
 		var input detailstoupdatereq
-		db.First(&student, "srn = ?", input.oldsrn)
-		student.Name = input.name
-		student.Email = input.email
-		student.DOB = input.dob
-		student.Password = input.password
-		student.SRN = input.srn
-		student.PhoneNumber = input.phone_number
-		student.DepartmentID = input.department_id
+		if err := c.BodyParser(&input); err != nil {
+			return c.Status(400).SendString(err.Error())
+		}
+		db.First(&student, "srn = ?", input.Oldsrn)
+
+		if len(input.Name) != 0 {
+			student.Name = input.Name
+		}
+		if len(input.Email) != 0 {
+			student.Email = input.Email
+		}
+		if len(input.Dob) != 0 {
+			student.DOB = input.Dob
+		}
+		if len(input.Password) != 0 {
+			student.Password = input.Password
+		}
+		if len(input.Phone_number) != 0 {
+			student.PhoneNumber = input.Phone_number
+		}
+		i := strconv.Itoa(input.Department_id)
+		if len(i) != 0 {
+			student.DepartmentID = input.Department_id
+		}
+
 		db.Save(&student)
 		return c.JSON(fiber.Map{
 			"status":  "success",
@@ -304,16 +335,17 @@ $$ LANGUAGE plpgsql;
 			"data":    student,
 		})
 	})
-	app.Get("/getStudentDetails", func(c *fiber.Ctx) error {
+	app.Post("/getDetails", func(c *fiber.Ctx) error {
 		var input getStudentDetailsreq
 		var student Student
 		if err := c.BodyParser(&input); err != nil {
 			return c.Status(400).SendString(err.Error())
 		}
-		result := db.Where("srn = ?", input.srn).First(&student)
+		result := db.Where("name = ?", input.Name).First(&student)
 		if result.Error != nil {
 			return c.Status(500).SendString(result.Error.Error())
 		}
+		student.IsAdmin = true
 		return c.JSON(student)
 
 	})
@@ -362,7 +394,7 @@ $$ LANGUAGE plpgsql;
 		if result.Error != nil {
 			return 0, result.Error
 		}
-		return company.ID, nil
+		return uint(company.CID), nil
 	}
 	//func to find uid using uname
 	findUniversityID := func(name string) (uint, error) {
@@ -371,7 +403,7 @@ $$ LANGUAGE plpgsql;
 		if result.Error != nil {
 			return 0, result.Error
 		}
-		return university.ID, nil
+		return uint(university.UniversityID), nil
 	}
 	app.Post("/addstudentplacements", func(c *fiber.Ctx) error {
 		var input addplacementreq
@@ -386,7 +418,7 @@ $$ LANGUAGE plpgsql;
 			return err
 		}
 		if input.selected {
-			if input.isAdmin {
+			if !input.isAdmin {
 				Data = AppliedForInterview{
 					SRN:                 input.srn,
 					CID:                 int(companyID),
