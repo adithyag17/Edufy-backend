@@ -52,7 +52,7 @@ type FacultyMentor struct {
 // For the 'university' table
 type University struct {
 	gorm.Model
-	UniversityID int    `gorm:"column:university_id;primaryKey"`
+	UniversityID string `gorm:"column:university_id;primaryKey"`
 	UName        string `gorm:"column:uname"`
 	Dept         int    `gorm:"foreignKey:DeptID"`
 	Ranking      int    `gorm:"column:ranking"`
@@ -71,19 +71,24 @@ type AppliesFor struct {
 type GotIn struct {
 	gorm.Model
 	SRN         string `gorm:"column:srn;primaryKey"`
-	UNID        int    `gorm:"column:unid;primaryKey"`
+	UName       string `gorm:"column:uname;primaryKey"`
 	ProgramName string `gorm:"column:program"`
-	Joined      string `gorm:"column:joined"`
+	Joined      bool   `gorm:"column:joined"`
+	Desc        string `gorm:"column:desc"`
 }
 
 // For the 'applied_for_interview' table
 type AppliedForInterview struct {
 	gorm.Model
 	SRN                 string `gorm:"column:srn;primaryKey"`
-	CID                 int    `gorm:"column:cid;primaryKey"`
+	CID                 string `gorm:"column:cid;primaryKey"`
+	CompanyName         string `gorm:"column:companyname"`
 	DateOfInterview     string `gorm:"column:date_of_interview"`
 	InterviewExperience string `gorm:"column:interview_experience"`
-	CTC                 int    `gorm:"column:date_of_interview"`
+	TestExperience      string `gorm:"column:test_experience"`
+	TestQualified       bool   `gorm:"column:test_qualified"`
+	InternOrPlaced      string `gorm:"column:intern_or_placed"`
+	CTC                 string `gorm:"column:ctc"`
 	Selected            bool   `gorm:"column:selected"`
 }
 
@@ -128,21 +133,23 @@ type getStudentDetailsreq struct {
 	Name string `json:"name"`
 }
 type addplacementreq struct {
-	srn             string
-	company_name    string
-	DateOfInterview string
-	isAdmin         bool
-	experience      string
-	CTC             int
-	selected        bool
+	Srn              string `json:"srn"`
+	Company_name     string `json:"company_name"`
+	DateOfInterview  string `json:"doi"`
+	Testexpr         string `json:"testexpr"`
+	Internorplaced   string `json:"iorp"`
+	Selectedforint   bool   `json:"selectedforint"`
+	Inter_experience string `json:"intexp"`
+	CTC              string `json:"ctc"`
+	Selected         bool   `json:"selected"`
 }
 
 type addstudentmastersreq struct {
-	srn         string
-	uname       string
-	programname string
-	isAdmin     bool
-	Joined      bool
+	Srn         string `json:"srn"`
+	Uname       string `json:"uname"`
+	Programname string `json:"pname"`
+	Joined      bool   `json:"joined"`
+	Desc        string `json:"desc"`
 }
 type detailstoupdatereq struct {
 	Name          string `json:"name"`
@@ -180,20 +187,28 @@ func main() {
 	// }
 	//declaring sql functions
 	if err := db.Exec(`
-        CREATE OR REPLACE FUNCTION avgsal() RETURNS numeric AS $$
-        DECLARE
-          total_sal numeric;
-          count_rows integer;
-        BEGIN
-          SELECT sum(ctc), count(*) INTO total_sal, count_rows FROM AppliedForInterview;
-          
-          IF count_rows > 0 THEN
-            RETURN total_sal / count_rows;
-          ELSE
-            RETURN 0;
-          END IF;
-        END;
-        $$ LANGUAGE plpgsql;
+	CREATE OR REPLACE FUNCTION avgsal()
+	RETURNS NUMERIC AS $$
+	DECLARE
+		total_ctc NUMERIC;
+		num_rows INT;
+	BEGIN
+		-- Calculate the sum of the CTC column
+		SELECT SUM(ctc) INTO total_ctc FROM applied_for_interviews;
+	
+		-- Get the number of rows in the table
+		SELECT COUNT(*) INTO num_rows FROM applied_for_interviews;
+	
+		-- Avoid division by zero
+		IF num_rows = 0 THEN
+			RETURN 0;
+		END IF;
+	
+		-- Calculate the average and return it
+		RETURN total_ctc / num_rows;
+	END;
+	$$ LANGUAGE plpgsql;
+	
     `).Error; err != nil {
 		log.Fatalln(err)
 	}
@@ -278,23 +293,23 @@ $$ LANGUAGE plpgsql;
 		if err := c.BodyParser(&input); err != nil {
 			return c.Status(400).SendString(err.Error())
 		}
-		if input.IsAdmin {
-			// Admin login logic
-			var admin Student
-			result := db.Where("email = ? AND password = ?", input.Email, input.Password).First(&admin)
-			if result.Error != nil {
-				return c.Status(401).SendString("Invalid credentials")
-			}
-			return c.JSON(admin.Name)
-		} else {
-			// Student login logic
-			var student Student
-			result := db.Where("email = ? AND password = ?", input.Email, input.Password).First(&student)
-			if result.Error != nil {
-				return c.Status(401).SendString("Invalid credentials")
-			}
-			return c.JSON(student.Name)
+
+		// Admin login logic
+		var admin Student
+		result := db.Where("email = ? AND password = ?", input.Email, input.Password).First(&admin)
+		if result.Error != nil {
+			return c.Status(401).SendString("Invalid credentials")
 		}
+		return c.JSON(admin.Name)
+
+		// Student login logic
+		// var student Student
+		// result := db.Where("email = ? AND password = ?", input.Email, input.Password).First(&student)
+		// if result.Error != nil {
+		// 	return c.Status(401).SendString("Invalid credentials")
+		// }
+		// return c.JSON(student.Name)
+
 	})
 
 	app.Get("/hi", func(c *fiber.Ctx) error {
@@ -307,7 +322,7 @@ $$ LANGUAGE plpgsql;
 			return c.Status(400).SendString(err.Error())
 		}
 		db.First(&student, "srn = ?", input.Oldsrn)
-
+		student.SRN = input.Oldsrn
 		if len(input.Name) != 0 {
 			student.Name = input.Name
 		}
@@ -345,30 +360,38 @@ $$ LANGUAGE plpgsql;
 		if result.Error != nil {
 			return c.Status(500).SendString(result.Error.Error())
 		}
-		student.IsAdmin = true
 		return c.JSON(student)
 
 	})
-
-	app.Get("/getstudentplacements", func(c *fiber.Ctx) error {
-		srn := c.Params("srn")
-
+	type getall struct {
+		Srn string `json:"srn"`
+	}
+	app.Post("/getstudentplacements", func(c *fiber.Ctx) error {
+		var getall1 getall
+		if err := c.BodyParser(&getall1); err != nil {
+			return c.Status(400).SendString(err.Error())
+		}
 		var interviews []AppliedForInterview
-		result := db.Find(&interviews, "srn = ?", srn)
+		result := db.Find(&interviews, "srn = ?", getall1.Srn)
 
 		if result.Error != nil {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Record not found!"})
 		}
+		fmt.Println(interviews)
 
 		return c.JSON(fiber.Map{"data": interviews})
 	})
-	app.Get("/getstudentuniversities", func(c *fiber.Ctx) error {
-		srn := c.Params("srn")
+	app.Post("/getstudentuniversities", func(c *fiber.Ctx) error {
+		var getall1 getall
+		if err := c.BodyParser(&getall1); err != nil {
+			return c.Status(400).SendString(err.Error())
+		}
 		var universities []GotIn
-		result := db.Find(&universities, "srn = ?", srn)
+		result := db.Find(&universities, "srn = ?", getall1.Srn)
 		if result.Error != nil {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Record not found!"})
 		}
+		fmt.Println(universities)
 		return c.JSON(fiber.Map{"data": universities})
 	})
 	app.Get("/allstudentplacementdetails", func(c *fiber.Ctx) error {
@@ -396,42 +419,32 @@ $$ LANGUAGE plpgsql;
 		}
 		return uint(company.CID), nil
 	}
-	//func to find uid using uname
-	findUniversityID := func(name string) (uint, error) {
-		var university University
-		result := db.Where("name = ?", name).First(&university)
-		if result.Error != nil {
-			return 0, result.Error
-		}
-		return uint(university.UniversityID), nil
-	}
 	app.Post("/addstudentplacements", func(c *fiber.Ctx) error {
 		var input addplacementreq
 		if err := c.BodyParser(&input); err != nil {
+			fmt.Println(input)
 			return c.Status(400).SendString(err.Error())
 		}
-		cname := input.company_name
+		cname := input.Company_name
 		var Data AppliedForInterview
 		companyID, err := findCompanyID(cname)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			return err
 		}
-		if input.selected {
-			if !input.isAdmin {
-				Data = AppliedForInterview{
-					SRN:                 input.srn,
-					CID:                 int(companyID),
-					DateOfInterview:     input.DateOfInterview,
-					InterviewExperience: input.experience,
-					CTC:                 input.CTC,
-				}
-				result := db.Create(&Data)
-				if result.Error != nil {
-					return c.Status(500).SendString(result.Error.Error())
-				}
-
-			}
+		Data = AppliedForInterview{
+			SRN:                 input.Srn,
+			CID:                 strconv.Itoa(int(companyID)),
+			DateOfInterview:     input.DateOfInterview,
+			InterviewExperience: input.Inter_experience,
+			InternOrPlaced:      input.Internorplaced, //1 for placed 2 for intern
+			TestQualified:       input.Selectedforint,
+			TestExperience:      input.Testexpr,
+			CTC:                 input.CTC, // in lpa
+		}
+		result := db.Create(&Data)
+		if result.Error != nil {
+			return c.Status(500).SendString(result.Error.Error())
 		}
 		return c.JSON(Data)
 	})
@@ -441,28 +454,26 @@ $$ LANGUAGE plpgsql;
 		if err := c.BodyParser(&input); err != nil {
 			return c.Status(400).SendString(err.Error())
 		}
-		uname := input.uname
 		var Data GotIn
-		UniversityID, err := findUniversityID(uname)
-		if err != nil {
-			fmt.Printf("Error: %v\n", err)
-			return err
-		}
 		if input.Joined {
-			if input.isAdmin {
-				Data = GotIn{
-					SRN:         input.srn,
-					UNID:        int(UniversityID),
-					ProgramName: input.programname,
-				}
-				result := db.Create(&Data)
-				if result.Error != nil {
-					return c.Status(500).SendString(result.Error.Error())
-				}
+			Data = GotIn{
+				SRN:         input.Srn,
+				UName:       input.Uname,
+				ProgramName: input.Programname,
+				Desc:        input.Desc,
+				Joined:      input.Joined,
+			}
+			result := db.Create(&Data)
+			if result.Error != nil {
+				return c.Status(500).SendString(result.Error.Error())
 			}
 		}
-
-		return c.JSON(Data)
+		var student Student
+		result := db.Where("srn = ?", input.Srn).First(&student)
+		if result.Error != nil {
+			fmt.Println(result.Error)
+		}
+		return c.JSON(student.Name)
 	})
 	app.Get("/findavgsalary", func(c *fiber.Ctx) error {
 		// Execute the SQL function to find the average salary
@@ -472,6 +483,7 @@ $$ LANGUAGE plpgsql;
 		if err := db.Raw("SELECT avgsal() AS average_salary").Scan(&result).Error; err != nil {
 			return c.Status(500).SendString(err.Error())
 		}
+		fmt.Println(result)
 		return c.JSON(result)
 	})
 	// Routes
