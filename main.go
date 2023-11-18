@@ -81,8 +81,7 @@ type GotIn struct {
 type AppliedForInterview struct {
 	gorm.Model
 	SRN                 string `gorm:"column:srn;primaryKey"`
-	CID                 string `gorm:"column:cid;primaryKey"`
-	CompanyName         string `gorm:"column:companyname"`
+	CName               string `gorm:"column:cname;primaryKey"`
 	DateOfInterview     string `gorm:"column:date_of_interview"`
 	InterviewExperience string `gorm:"column:interview_experience"`
 	TestExperience      string `gorm:"column:test_experience"`
@@ -212,6 +211,7 @@ func main() {
     `).Error; err != nil {
 		log.Fatalln(err)
 	}
+
 	// Declaring SQL functions
 	if err := db.Exec(`
 CREATE OR REPLACE FUNCTION findtotalplaced() RETURNS integer AS $$
@@ -249,6 +249,43 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 `).Error; err != nil {
+		log.Fatalln(err)
+	}
+	//db triggers:
+	if err := db.Exec(`
+	CREATE OR REPLACE FUNCTION check_srn_before_insert() RETURNS TRIGGER AS $$
+BEGIN
+   IF NEW.SRN NOT IN (SELECT SRN FROM Student) THEN
+      RAISE EXCEPTION 'SRN does not exist in Student table';
+   END IF;
+   RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE  TRIGGER check_srn_before_insert
+BEFORE INSERT ON GOT_INS
+FOR EACH ROW EXECUTE FUNCTION check_srn_before_insert();
+
+`).Error; err != nil {
+		log.Fatalln(err)
+	}
+	//db trigger check for placement
+	//db triggers:
+	if err := db.Exec(`
+	 CREATE OR REPLACE FUNCTION check_srn_before_insert_into_appliedforinterview() RETURNS TRIGGER AS $$
+ BEGIN
+	IF NEW.SRN NOT IN (SELECT SRN FROM Student) THEN
+	   RAISE EXCEPTION 'SRN does not exist in Student table';
+	END IF;
+	RETURN NEW;
+ END;
+ $$ LANGUAGE plpgsql;
+ 
+ CREATE OR REPLACE TRIGGER check_srn_before_insert
+ BEFORE INSERT ON applied_for_interviews
+ FOR EACH ROW EXECUTE FUNCTION check_srn_before_insert_into_appliedforinterview();
+ 
+ `).Error; err != nil {
 		log.Fatalln(err)
 	}
 	app := fiber.New()
@@ -400,6 +437,7 @@ $$ LANGUAGE plpgsql;
 		if result.Error != nil {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Record not found!"})
 		}
+		fmt.Println(result)
 		return c.JSON(fiber.Map{"data": allstudents})
 	})
 	app.Get("/allstudentsuniversitydetails", func(c *fiber.Ctx) error {
@@ -408,33 +446,34 @@ $$ LANGUAGE plpgsql;
 		if result.Error != nil {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Record not found!"})
 		}
+		fmt.Println(result)
 		return c.JSON(fiber.Map{"data": allstudents})
 	})
 	//func to find cid using cname
-	findCompanyID := func(name string) (uint, error) {
-		var company Company
-		result := db.Where("Name = ?", name).First(&company)
-		if result.Error != nil {
-			return 0, result.Error
-		}
-		return uint(company.CID), nil
-	}
+	// findCompanyID := func(name string) (uint, error) {
+	// 	var company Company
+	// 	result := db.Where("Name = ?", name).First(&company)
+	// 	if result.Error != nil {
+	// 		return 0, result.Error
+	// 	}
+	// 	return uint(company.CID), nil
+	// }
 	app.Post("/addstudentplacements", func(c *fiber.Ctx) error {
 		var input addplacementreq
 		if err := c.BodyParser(&input); err != nil {
 			fmt.Println(input)
 			return c.Status(400).SendString(err.Error())
 		}
-		cname := input.Company_name
+		//cname := input.Company_name
 		var Data AppliedForInterview
-		companyID, err := findCompanyID(cname)
+		//companyID, err := findCompanyID(cname)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			return err
 		}
 		Data = AppliedForInterview{
 			SRN:                 input.Srn,
-			CID:                 strconv.Itoa(int(companyID)),
+			CName:               input.Company_name,
 			DateOfInterview:     input.DateOfInterview,
 			InterviewExperience: input.Inter_experience,
 			InternOrPlaced:      input.Internorplaced, //1 for placed 2 for intern
