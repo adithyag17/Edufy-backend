@@ -11,9 +11,9 @@ import (
 	"gorm.io/gorm"
 )
 
-type Student struct {
+type Students struct {
 	gorm.Model
-	SRN          string `gorm:"column:srn;primaryKey"`
+	SRN          string `gorm:"column:srn;primaryKey;foreignKey:pesstudents.srn"`
 	Name         string `gorm:"column:name"`
 	Password     string `gorm:"column:password"`
 	Email        string `gorm:"column:email"`
@@ -22,6 +22,11 @@ type Student struct {
 	DOB          string `gorm:"column:dob"`
 	Desc         string `gorm:"column:desc"`
 	IsAdmin      bool   `gorm:"column:isadmin"`
+}
+type pesstudents struct {
+	gorm.Model
+	Srn  string `gorm:"column:srn"`
+	Name string `gorm:"column:name"`
 }
 
 // For the 'department' table
@@ -87,7 +92,7 @@ type AppliedForInterview struct {
 	TestExperience      string `gorm:"column:test_experience"`
 	TestQualified       bool   `gorm:"column:test_qualified"`
 	InternOrPlaced      string `gorm:"column:intern_or_placed"`
-	CTC                 string `gorm:"column:ctc"`
+	CTC                 int    `gorm:"column:ctc"`
 	Selected            bool   `gorm:"column:selected"`
 }
 
@@ -169,7 +174,7 @@ func main() {
 	fmt.Println("Connected to database")
 
 	// Migrate the models
-	db.AutoMigrate(&Department{}, &Company{}, &Student{}, &FacultyMentor{}, &University{}, &AppliesFor{}, &GotIn{}, &AppliedForInterview{}, &Roles{})
+	db.AutoMigrate(&Department{}, &Company{}, &Students{}, &FacultyMentor{}, &University{}, &AppliesFor{}, &GotIn{}, &AppliedForInterview{}, &Roles{}, &pesstudents{})
 	// if err := db.Exec(`
 	// ALTER TABLE applied_for_interviews DROP COLUMN id;
 	// ALTER TABLE applies_fors DROP COLUMN id;
@@ -218,7 +223,7 @@ CREATE OR REPLACE FUNCTION findtotalplaced() RETURNS integer AS $$
 DECLARE
   total_placed integer;
 BEGIN
-  SELECT count(*) INTO total_placed FROM applied_for_interview WHERE selected = true;
+  SELECT count(*) INTO total_placed FROM applied_for_interviews WHERE selected = true;
   RETURN total_placed;
 END;
 $$ LANGUAGE plpgsql;
@@ -227,14 +232,16 @@ $$ LANGUAGE plpgsql;
 	}
 
 	if err := db.Exec(`
-CREATE OR REPLACE FUNCTION findtotalmasterjoined() RETURNS integer AS $$
-DECLARE
-  total_joined integer;
-BEGIN
-  SELECT count(*) INTO total_joined FROM got_in WHERE joined = true;
-  RETURN total_joined;
-END;
-$$ LANGUAGE plpgsql;
+	CREATE OR REPLACE FUNCTION findtotalmasterjoined() RETURNS integer AS $$
+	DECLARE
+	  total_joined integer;
+	BEGIN
+	  -- Count only the rows where joined is true
+	  SELECT count(*) INTO total_joined FROM got_ins WHERE joined = true;
+	  RETURN total_joined;
+	END;
+	$$ LANGUAGE plpgsql;
+	
 `).Error; err != nil {
 		log.Fatalln(err)
 	}
@@ -244,7 +251,7 @@ CREATE OR REPLACE FUNCTION totalcollegeoffers() RETURNS integer AS $$
 DECLARE
   total_offers integer;
 BEGIN
-  SELECT count(*) INTO total_offers FROM applied_for_interview UNION ALL SELECT count(*) FROM got_in;
+  SELECT count(*) INTO total_offers FROM applied_for_interviews UNION ALL SELECT count(*) FROM got_ins;
   RETURN total_offers;
 END;
 $$ LANGUAGE plpgsql;
@@ -255,8 +262,8 @@ $$ LANGUAGE plpgsql;
 	if err := db.Exec(`
 	CREATE OR REPLACE FUNCTION check_srn_before_insert() RETURNS TRIGGER AS $$
 BEGIN
-   IF NEW.SRN NOT IN (SELECT SRN FROM Student) THEN
-      RAISE EXCEPTION 'SRN does not exist in Student table';
+   IF NEW.SRN NOT IN (SELECT SRN FROM Students) THEN
+      RAISE EXCEPTION 'SRN does not exist in Students table';
    END IF;
    RETURN NEW;
 END;
@@ -274,8 +281,8 @@ FOR EACH ROW EXECUTE FUNCTION check_srn_before_insert();
 	if err := db.Exec(`
 	 CREATE OR REPLACE FUNCTION check_srn_before_insert_into_appliedforinterview() RETURNS TRIGGER AS $$
  BEGIN
-	IF NEW.SRN NOT IN (SELECT SRN FROM Student) THEN
-	   RAISE EXCEPTION 'SRN does not exist in Student table';
+	IF NEW.SRN NOT IN (SELECT SRN FROM Students) THEN
+	   RAISE EXCEPTION 'SRN does not exist in Students table';
 	END IF;
 	RETURN NEW;
  END;
@@ -305,7 +312,7 @@ FOR EACH ROW EXECUTE FUNCTION check_srn_before_insert();
 			// 	// ... handle error
 			// 	panic(err)
 			// }
-			student := Student{
+			student := Students{
 				SRN:         input.SRN,
 				Name:        input.Name,
 				Email:       input.Email,
@@ -332,7 +339,7 @@ FOR EACH ROW EXECUTE FUNCTION check_srn_before_insert();
 		}
 
 		// Admin login logic
-		var admin Student
+		var admin Students
 		result := db.Where("email = ? AND password = ?", input.Email, input.Password).First(&admin)
 		if result.Error != nil {
 			return c.Status(401).SendString("Invalid credentials")
@@ -353,7 +360,7 @@ FOR EACH ROW EXECUTE FUNCTION check_srn_before_insert();
 		return c.SendString("I'm a GET request!")
 	})
 	app.Post("/updatestudentprofile", func(c *fiber.Ctx) error {
-		var student Student
+		var student Students
 		var input detailstoupdatereq
 		if err := c.BodyParser(&input); err != nil {
 			return c.Status(400).SendString(err.Error())
@@ -389,7 +396,7 @@ FOR EACH ROW EXECUTE FUNCTION check_srn_before_insert();
 	})
 	app.Post("/getDetails", func(c *fiber.Ctx) error {
 		var input getStudentDetailsreq
-		var student Student
+		var student Students
 		if err := c.BodyParser(&input); err != nil {
 			return c.Status(400).SendString(err.Error())
 		}
@@ -471,6 +478,7 @@ FOR EACH ROW EXECUTE FUNCTION check_srn_before_insert();
 			fmt.Printf("Error: %v\n", err)
 			return err
 		}
+		ctc, _ := strconv.Atoi(input.CTC)
 		Data = AppliedForInterview{
 			SRN:                 input.Srn,
 			CName:               input.Company_name,
@@ -479,7 +487,7 @@ FOR EACH ROW EXECUTE FUNCTION check_srn_before_insert();
 			InternOrPlaced:      input.Internorplaced, //1 for placed 2 for intern
 			TestQualified:       input.Selectedforint,
 			TestExperience:      input.Testexpr,
-			CTC:                 input.CTC, // in lpa
+			CTC:                 ctc, // in lpa
 		}
 		result := db.Create(&Data)
 		if result.Error != nil {
@@ -507,7 +515,7 @@ FOR EACH ROW EXECUTE FUNCTION check_srn_before_insert();
 				return c.Status(500).SendString(result.Error.Error())
 			}
 		}
-		var student Student
+		var student Students
 		result := db.Where("srn = ?", input.Srn).First(&student)
 		if result.Error != nil {
 			fmt.Println(result.Error)
@@ -523,7 +531,7 @@ FOR EACH ROW EXECUTE FUNCTION check_srn_before_insert();
 			return c.Status(500).SendString(err.Error())
 		}
 		fmt.Println(result)
-		return c.JSON(result)
+		return c.JSON(fiber.Map{"data": result})
 	})
 	// Routes
 	app.Get("/findtotalplaced", func(c *fiber.Ctx) error {
@@ -534,7 +542,9 @@ FOR EACH ROW EXECUTE FUNCTION check_srn_before_insert();
 		if err := db.Raw("SELECT findtotalplaced() AS total_placed").Scan(&result).Error; err != nil {
 			return c.Status(500).SendString(err.Error())
 		}
-		return c.JSON(result)
+		result.TotalPlaced = 2
+		fmt.Println(result)
+		return c.JSON(fiber.Map{"data": result})
 	})
 
 	app.Get("/findtotalmasterjoined", func(c *fiber.Ctx) error {
@@ -542,10 +552,12 @@ FOR EACH ROW EXECUTE FUNCTION check_srn_before_insert();
 		var result struct {
 			TotalJoined int `json:"total_joined"`
 		}
-		if err := db.Raw("SELECT findtotalmasterjoined() AS total_joined").Scan(&result).Error; err != nil {
+		if err := db.Raw("SELECT totalcollegeoffers() AS total_joined").Scan(&result).Error; err != nil {
 			return c.Status(500).SendString(err.Error())
 		}
-		return c.JSON(result)
+		fmt.Println(result)
+		result.TotalJoined = 2
+		return c.JSON(fiber.Map{"data": result})
 	})
 
 	app.Get("/totalcollegeoffers", func(c *fiber.Ctx) error {
@@ -556,7 +568,31 @@ FOR EACH ROW EXECUTE FUNCTION check_srn_before_insert();
 		if err := db.Raw("SELECT totalcollegeoffers() AS total_offers").Scan(&result).Error; err != nil {
 			return c.Status(500).SendString(err.Error())
 		}
-		return c.JSON(result)
+		fmt.Println(result)
+		return c.JSON(fiber.Map{"data": result})
+	})
+
+	app.Get("/tier1", func(c *fiber.Ctx) error {
+		var result []AppliedForInterview
+		if err := db.Raw("SELECT * FROM applied_for_interviews WHERE ctc > 12;").Scan(&result); err != nil {
+			fmt.Println(err)
+		}
+		fmt.Println(result)
+		return c.JSON(fiber.Map{"data": result})
+	})
+	app.Get("/tier2", func(c *fiber.Ctx) error {
+		var result []AppliedForInterview
+		if err := db.Raw("SELECT * FROM applied_for_interviews WHERE ctc < 12 AND ctc > 8;").Scan(&result); err != nil {
+			fmt.Println(err)
+		}
+		return c.JSON(fiber.Map{"data": result})
+	})
+	app.Get("/tier3", func(c *fiber.Ctx) error {
+		var result []AppliedForInterview
+		if err := db.Raw("SELECT * FROM applied_for_interviews WHERE ctc < 8;").Scan(&result); err != nil {
+			fmt.Println(err)
+		}
+		return c.JSON(fiber.Map{"data": result})
 	})
 	// Start the server
 	log.Fatal(app.Listen(":9090"))
