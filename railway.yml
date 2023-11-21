@@ -1,0 +1,9 @@
+# railway.yml
+
+version: 2
+frontend:
+  builder: railway/go
+  command: go run main.go
+  env:
+    - DB_PASSWORD=edufyedufy
+  env_files: [".env"]
