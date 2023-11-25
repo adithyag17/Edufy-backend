@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"log"
 	"strconv"
-
+	"os"
+	"github.com/joho/godotenv"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"gorm.io/driver/postgres"
@@ -167,7 +168,22 @@ type detailstoupdatereq struct {
 
 func main() {
 	// Connect to the database
-	db, err := gorm.Open(postgres.Open("user=postgres port=5433 password=Adi2012@$ dbname=edufy sslmode=disable"), &gorm.Config{})
+	// Load environment variables from .env file
+	if err := godotenv.Load(); err != nil {
+		log.Fatal("Error loading .env file")
+	}
+
+	// Retrieve the database password from an environment variable
+	dbPassword := os.Getenv("DB_PASSWORD")
+
+	// Check if the password is empty
+	if dbPassword == "" {
+		panic("DB_PASSWORD environment variable is not set")
+	}
+
+	// Establish a connection to the PostgreSQL database
+	db, err := gorm.Open(postgres.Open("host=edufydbs.c9rz0vjywjf8.us-east-1.rds.amazonaws.com port=5432 user=edufy password=" + dbPassword + " dbname=edufys sslmode=require"), &gorm.Config{})
+
 	if err != nil {
 		log.Fatalln(err)
 	}
