@@ -182,7 +182,7 @@ func main() {
 	}
 
 	// Establish a connection to the PostgreSQL database
-	db, err := gorm.Open(postgres.Open("host=edufydbs.c9rz0vjywjf8.us-east-1.rds.amazonaws.com port=5432 user=edufy password=" + dbPassword + " dbname=edufys sslmode=require"), &gorm.Config{})
+	db, err := gorm.Open(postgres.Open("host=edufy.postgres.database.azure.com port=5432 user=edufy password=" + dbPassword + " dbname=edufys sslmode=require"), &gorm.Config{})
 
 	if err != nil {
 		log.Fatalln(err)
